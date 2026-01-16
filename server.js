@@ -4,6 +4,7 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const rateLimit = require("express-rate-limit");
 
+// Routes
 const homeRoutes = require("./routes/home");
 const movieRoutes = require("./routes/movie");
 const aiChatRoute = require("./routes/aiChat");
@@ -16,13 +17,11 @@ const app = express();
 app.use(express.json());
 
 /* ============================
-   CORS (HOSTINGER + CUSTOM DOMAIN SAFE)
+   CORS (ONLY YOUR FRONTEND DOMAIN)
 ============================ */
 const allowedOrigins = [
-  "http://localhost:3000",
   "https://raatkibaat.in",
-  "https://www.raatkibaat.in",
-  "https://horizons.hostinger.com"
+  "https://www.raatkibaat.in"
 ];
 
 app.use(
@@ -45,7 +44,7 @@ app.options("*", cors());
 ============================ */
 const chatLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 10,
+  max: 12,
   message: {
     success: false,
     data: {
@@ -54,14 +53,15 @@ const chatLimiter = rateLimit({
   }
 });
 
+// Apply limiter only to AI route
 app.use("/api/ai", chatLimiter);
 
 /* ============================
-   ROUTES (MATCH FRONTEND HANDOVER)
+   ROUTES (MATCH FRONTEND DOC)
 ============================ */
-app.use("/api", homeRoutes);         // /api/trending etc
-app.use("/api", movieRoutes);        // /api/movie/:id , /api/search
-app.use("/api/ai", aiChatRoute);     // /api/ai/chat
+app.use("/api", homeRoutes);
+app.use("/api", movieRoutes);
+app.use("/api/ai", aiChatRoute);
 
 /* ============================
    HEALTH CHECK
@@ -75,12 +75,15 @@ app.get("/health", (req, res) => {
   });
 });
 
+/* ============================
+   ROOT
+============================ */
 app.get("/", (req, res) => {
   res.send("🎬 Filmi Bharat Backend v3 Running");
 });
 
 /* ============================
-   DATABASE + SERVER START
+   DB CONNECT + SERVER START
 ============================ */
 const PORT = process.env.PORT || 5000;
 
@@ -88,8 +91,6 @@ mongoose
   .connect(process.env.MONGO_URI)
   .then(() => {
     console.log("✅ MongoDB Connected");
-    app.listen(PORT, () => {
-      console.log(`🚀 Server running on port ${PORT}`);
-    });
+    app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
   })
   .catch((err) => console.error("❌ MongoDB Error:", err));
