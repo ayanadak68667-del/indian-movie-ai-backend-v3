@@ -70,7 +70,7 @@ class YouTubeService {
         };
       }
 
-      // ✅ Fallback to video jukebox
+      // ✅ Fallback to a video jukebox
       const videoQuery = `${movieTitle} songs jukebox`;
       const videoRes = await axios.get(`${YOUTUBE_BASE}/search`, {
         params: {
