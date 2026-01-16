@@ -2,9 +2,7 @@ const express = require("express");
 const router = express.Router();
 const tmdbService = require("../services/tmdbService");
 
-/**
- * GET /api/trending
- */
+// GET /api/trending
 router.get("/trending", async (req, res) => {
   try {
     const data = await tmdbService.getTrendingIndia();
@@ -14,9 +12,7 @@ router.get("/trending", async (req, res) => {
   }
 });
 
-/**
- * GET /api/upcoming
- */
+// GET /api/upcoming
 router.get("/upcoming", async (req, res) => {
   try {
     const data = await tmdbService.getUpcomingIndia();
@@ -26,9 +22,7 @@ router.get("/upcoming", async (req, res) => {
   }
 });
 
-/**
- * GET /api/top-rated
- */
+// GET /api/top-rated
 router.get("/top-rated", async (req, res) => {
   try {
     const data = await tmdbService.getTopRatedIndia();
@@ -38,9 +32,7 @@ router.get("/top-rated", async (req, res) => {
   }
 });
 
-/**
- * GET /api/web-series
- */
+// GET /api/web-series
 router.get("/web-series", async (req, res) => {
   try {
     const data = await tmdbService.getPopularWebSeriesIndia();
