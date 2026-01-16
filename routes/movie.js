@@ -6,11 +6,9 @@ const youtubeService = require("../services/youtubeService");
 const { generateMovieBlog } = require("../services/groqService");
 const mongoCache = require("../services/mongoCacheService");
 
-const CACHE_TTL = 1000 * 60 * 60 * 24;
+const CACHE_TTL = 1000 * 60 * 60 * 24; // 24h
 
-/**
- * GET /api/search?q=keyword
- */
+// GET /api/search?q=keyword
 router.get("/search", async (req, res) => {
   try {
     const query = (req.query.q || "").trim();
@@ -27,14 +25,12 @@ router.get("/search", async (req, res) => {
   }
 });
 
-/**
- * GET /api/movie/:id
- */
+// GET /api/movie/:id
 router.get("/movie/:id", async (req, res) => {
   const movieId = req.params.id;
 
   try {
-    // ✅ 1) Cache check
+    // ✅ 1) Mongo Cache Check
     const cachedMovie = await mongoCache.get(movieId);
 
     const isStale = cachedMovie?.lastUpdated
@@ -57,7 +53,7 @@ router.get("/movie/:id", async (req, res) => {
       });
     }
 
-    // ✅ 2) TMDB details
+    // ✅ 2) TMDB Details
     const movie = await tmdbService.getMovieDetails(movieId);
     if (!movie) throw new Error("TMDB details failed");
 
@@ -69,17 +65,21 @@ router.get("/movie/:id", async (req, res) => {
       tmdbService.getWatchProviders(movieId).catch(() => ({}))
     ]);
 
+    // ✅ 4) Meta flags
     const releaseTime = movie.release_date
       ? new Date(movie.release_date).getTime()
       : null;
 
     const meta = {
       isTrending: (movie.popularity || 0) > 100,
-      isNew: releaseTime ? (Date.now() - releaseTime) / (1000 * 60 * 60 * 24) < 60 : false,
+      isNew: releaseTime
+        ? (Date.now() - releaseTime) / (1000 * 60 * 60 * 24) < 60
+        : false,
       popularity: movie.popularity || 0,
       imdbRating: movie.vote_average || 0
     };
 
+    // ✅ 5) Save to Mongo Cache
     const movieData = {
       tmdbId: String(movieId),
       title: movie.title,
@@ -96,6 +96,7 @@ router.get("/movie/:id", async (req, res) => {
 
     await mongoCache.set(movieData);
 
+    // ✅ 6) Response
     return res.json({
       success: true,
       data: {
@@ -111,7 +112,8 @@ router.get("/movie/:id", async (req, res) => {
     });
   } catch (error) {
     console.error("Movie Route Error:", error.message);
-    res.status(500).json({
+
+    return res.status(500).json({
       success: false,
       data: {
         movie: {},
