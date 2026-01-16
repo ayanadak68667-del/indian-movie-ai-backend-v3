@@ -17,7 +17,7 @@ class TMDBService {
     }
   }
 
-  // ✅ Search movies + tv
+  // ✅ Movies + TV search (mixed)
   async searchMulti(query) {
     const [movies, tv] = await Promise.all([
       this.safeGet(`${TMDB_BASE}/search/movie`, {
@@ -31,24 +31,26 @@ class TMDBService {
       })
     ]);
 
-    const movieResults = movies?.results || [];
-    const tvResults = tv?.results || [];
+    const movieResults = (movies?.results || []).map((m) => ({
+      ...m,
+      media_type: "movie"
+    }));
 
-    // add media_type for frontend
-    const combined = [
-      ...movieResults.map((m) => ({ ...m, media_type: "movie" })),
-      ...tvResults.map((t) => ({ ...t, media_type: "tv" }))
-    ];
+    const tvResults = (tv?.results || []).map((t) => ({
+      ...t,
+      media_type: "tv"
+    }));
 
-    return combined.slice(0, 20);
+    return [...movieResults, ...tvResults].slice(0, 20);
   }
 
-  // ✅ Trending India (Discover-based)
+  // ✅ Trending Indian Movies (Discover-based reliable)
   async getTrendingIndia() {
     const data = await this.safeGet(`${TMDB_BASE}/discover/movie`, {
       region: "IN",
       with_origin_country: "IN",
-      sort_by: "popularity.desc"
+      sort_by: "popularity.desc",
+      language: "en-IN"
     });
     return data?.results?.slice(0, 10) || [];
   }
@@ -76,7 +78,7 @@ class TMDBService {
     return data?.results?.slice(0, 10) || [];
   }
 
-  // ✅ Movie details + credits for AI blog
+  // ✅ Movie details (credits included for AI blog)
   async getMovieDetails(movieId) {
     const data = await this.safeGet(`${TMDB_BASE}/movie/${movieId}`, {
       language: "en-IN",
@@ -85,9 +87,12 @@ class TMDBService {
     return data || null;
   }
 
-  // ✅ Watch Providers
+  // ✅ OTT Watch Providers (India)
   async getWatchProviders(movieId) {
-    const data = await this.safeGet(`${TMDB_BASE}/movie/${movieId}/watch/providers`, {});
+    const data = await this.safeGet(
+      `${TMDB_BASE}/movie/${movieId}/watch/providers`,
+      {}
+    );
     return data?.results?.IN || {};
   }
 }
