@@ -17,23 +17,30 @@ const app = express();
 app.use(express.json());
 
 /* ============================
-   CORS (ONLY YOUR FRONTEND DOMAIN)
+   ✅ PERMANENT CORS FIX (Hostinger Preview + Live Domain)
 ============================ */
 const allowedOrigins = [
   "https://raatkibaat.in",
-  "https://www.raatkibaat.in"
+  "https://www.raatkibaat.in",
+  "https://horizons.hostinger.com"
 ];
 
 app.use(
   cors({
     origin: function (origin, callback) {
-      if (!origin) return callback(null, true); // Postman / server-to-server
+      if (!origin) return callback(null, true);
+
+      // ✅ Allow your main domains
       if (allowedOrigins.includes(origin)) return callback(null, true);
+
+      // ✅ Permanent allow for Hostinger preview links
+      // Example: https://xxxxx.app-preview.com
+      if (origin.endsWith(".app-preview.com")) return callback(null, true);
+
       return callback(new Error("CORS blocked for: " + origin), false);
     },
     methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-    credentials: false
+    allowedHeaders: ["Content-Type", "Authorization"]
   })
 );
 
@@ -57,7 +64,7 @@ const chatLimiter = rateLimit({
 app.use("/api/ai", chatLimiter);
 
 /* ============================
-   ROUTES (MATCH FRONTEND DOC)
+   ROUTES
 ============================ */
 app.use("/api", homeRoutes);
 app.use("/api", movieRoutes);
