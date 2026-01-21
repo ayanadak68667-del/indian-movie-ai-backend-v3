@@ -8,56 +8,63 @@ const mongoCache = require("../services/mongoCacheService");
 
 const CACHE_TTL = 1000 * 60 * 60 * 24; // 24h
 
-// GET /api/search?q=keyword
-router.get("/search", async (req, res) => {
+// ✅ ১. GET /api/trending - হোমপেজের জন্য ট্রেন্ডিং মুভি
+router.get("/trending", async (req, res) => {
   try {
-    const query = (req.query.q || "").trim();
-
-    if (!query || query.length < 2) {
-      return res.json({ success: true, data: [] });
-    }
-
-    const data = await tmdbService.searchMulti(query);
-    return res.json({ success: true, data });
+    const data = await tmdbService.getTrending(); // নিশ্চিত করো tmdbService-এ এই ফাংশন আছে
+    res.json({ success: true, data: data.results || [] });
   } catch (error) {
-    console.error("Search Error:", error.message);
     res.status(500).json({ success: false, data: [] });
   }
 });
 
-// GET /api/movie/:id
+// ✅ ২. GET /api/discover - মুড (Genre) এবং বছর (Year) দিয়ে ফিল্টার
+router.get("/discover", async (req, res) => {
+  try {
+    const { genre, year } = req.query;
+    const data = await tmdbService.discoverMovies({ genre, year }); 
+    // tmdbService.discoverMovies-এ axios.get('/discover/movie', { params: { with_genres: genre, primary_release_year: year } }) থাকতে হবে
+    res.json({ success: true, data: data.results || [] });
+  } catch (error) {
+    res.status(500).json({ success: false, data: [] });
+  }
+});
+
+// ✅ ৩. GET /api/search?q=keyword
+router.get("/search", async (req, res) => {
+  try {
+    const query = (req.query.q || "").trim();
+    if (!query || query.length < 2) return res.json({ success: true, data: [] });
+
+    const data = await tmdbService.searchMulti(query);
+    return res.json({ success: true, data: data.results || [] });
+  } catch (error) {
+    res.status(500).json({ success: false, data: [] });
+  }
+});
+
+// ✅ ৪. GET /api/movie/:id (ডিটেইলস ও সার্টিফিকেশন ফিক্স)
 router.get("/movie/:id", async (req, res) => {
   const movieId = req.params.id;
 
   try {
-    // ✅ 1) Mongo Cache Check
     const cachedMovie = await mongoCache.get(movieId);
-
     const isStale = cachedMovie?.lastUpdated
       ? Date.now() - new Date(cachedMovie.lastUpdated).getTime() > CACHE_TTL
       : true;
 
     if (cachedMovie && !isStale) {
-      return res.json({
-        success: true,
-        data: {
-          movie: cachedMovie.details || {},
-          trailer: cachedMovie.trailer || null,
-          playlist: cachedMovie.playlist || null,
-          aiBlog: cachedMovie.aiBlog || {},
-          watchProviders: cachedMovie.watchProviders || {},
-          meta: cachedMovie.meta || {},
-          lastUpdated: cachedMovie.lastUpdated,
-          cached: true
-        }
-      });
+      return res.json({ success: true, data: { ...cachedMovie, cached: true } });
     }
 
-    // ✅ 2) TMDB Details
     const movie = await tmdbService.getMovieDetails(movieId);
     if (!movie) throw new Error("TMDB details failed");
 
-    // ✅ 3) Parallel calls
+    // সার্টিফিকেশন ডেটা আনা (রিয়েল মেটাডেটা)
+    const releaseDates = await tmdbService.getReleaseDates(movieId); // নতুন সার্ভিস কল
+    const indiaRelease = releaseDates?.results?.find(r => r.iso_3166_1 === 'IN');
+    const cert = indiaRelease ? indiaRelease.release_dates[0].certification : "UA 13+";
+
     const [trailer, playlist, aiBlog, watchProviders] = await Promise.all([
       youtubeService.getTrailer(movie.title).catch(() => null),
       youtubeService.getPlaylist(movie.title).catch(() => null),
@@ -65,66 +72,30 @@ router.get("/movie/:id", async (req, res) => {
       tmdbService.getWatchProviders(movieId).catch(() => ({}))
     ]);
 
-    // ✅ 4) Meta flags
-    const releaseTime = movie.release_date
-      ? new Date(movie.release_date).getTime()
-      : null;
-
     const meta = {
       isTrending: (movie.popularity || 0) > 100,
-      isNew: releaseTime
-        ? (Date.now() - releaseTime) / (1000 * 60 * 60 * 24) < 60
-        : false,
+      isNew: movie.release_date ? (Date.now() - new Date(movie.release_date)) / 86400000 < 60 : false,
       popularity: movie.popularity || 0,
-      imdbRating: movie.vote_average || 0
+      imdbRating: movie.vote_average || 0,
+      certification: cert // রিয়েল সার্টিফিকেশন অ্যাড করা হলো
     };
 
-    // ✅ 5) Save to Mongo Cache
     const movieData = {
       tmdbId: String(movieId),
-      title: movie.title,
-      poster_path: movie.poster_path,
-      release_date: movie.release_date,
       details: movie,
-      trailer: trailer || null,
-      playlist: playlist || null,
-      aiBlog: aiBlog || {},
-      watchProviders: watchProviders || {},
+      trailer,
+      playlist,
+      aiBlog,
+      watchProviders,
       meta,
       lastUpdated: new Date()
     };
 
     await mongoCache.set(movieData);
 
-    // ✅ 6) Response
-    return res.json({
-      success: true,
-      data: {
-        movie: movieData.details,
-        trailer: movieData.trailer,
-        playlist: movieData.playlist,
-        aiBlog: movieData.aiBlog,
-        watchProviders: movieData.watchProviders,
-        meta: movieData.meta,
-        lastUpdated: movieData.lastUpdated,
-        cached: false
-      }
-    });
+    return res.json({ success: true, data: { ...movieData, cached: false } });
   } catch (error) {
-    console.error("Movie Route Error:", error.message);
-
-    return res.status(500).json({
-      success: false,
-      data: {
-        movie: {},
-        trailer: null,
-        playlist: null,
-        aiBlog: {},
-        watchProviders: {},
-        meta: {},
-        cached: false
-      }
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
