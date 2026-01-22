@@ -17,82 +17,63 @@ class TMDBService {
     }
   }
 
-  // ✅ Movies + TV search (mixed)
+  // ✅ ১. নতুন ডিসকভার ফাংশন (মুড ও বছর ফিল্টারের জন্য বাধ্যতামূলক)
+  async discoverMovies({ genre, year }) {
+    return await this.safeGet(`${TMDB_BASE}/discover/movie`, {
+      with_genres: genre || "",
+      primary_release_year: year || "2026",
+      sort_by: "popularity.desc",
+      language: "en-IN",
+      region: "IN"
+    });
+  }
+
+  // ✅ ২. নতুন রিলিজ ডেট ফাংশন (U/A সার্টিফিকেশন দেখানোর জন্য)
+  async getReleaseDates(movieId) {
+    return await this.safeGet(`${TMDB_BASE}/movie/${movieId}/release_dates`);
+  }
+
+  // ✅ বাকি সব আগের মতোই থাকছে (যাতে অন্য কিছু না ভাঙে)
   async searchMulti(query) {
     const [movies, tv] = await Promise.all([
-      this.safeGet(`${TMDB_BASE}/search/movie`, {
-        query,
-        language: "en-IN",
-        region: "IN"
-      }),
-      this.safeGet(`${TMDB_BASE}/search/tv`, {
-        query,
-        language: "en-IN"
-      })
+      this.safeGet(`${TMDB_BASE}/search/movie`, { query, language: "en-IN", region: "IN" }),
+      this.safeGet(`${TMDB_BASE}/search/tv`, { query, language: "en-IN" })
     ]);
-
-    const movieResults = (movies?.results || []).map((m) => ({
-      ...m,
-      media_type: "movie"
-    }));
-
-    const tvResults = (tv?.results || []).map((t) => ({
-      ...t,
-      media_type: "tv"
-    }));
-
+    const movieResults = (movies?.results || []).map((m) => ({ ...m, media_type: "movie" }));
+    const tvResults = (tv?.results || []).map((t) => ({ ...t, media_type: "tv" }));
     return [...movieResults, ...tvResults].slice(0, 20);
   }
 
-  // ✅ Trending Indian Movies (Discover-based reliable)
-  async getTrendingIndia() {
-    const data = await this.safeGet(`${TMDB_BASE}/discover/movie`, {
+  async getTrending() { // ব্যাকএন্ড রাউটের সাথে মিল রাখতে নাম পরিবর্তন
+    return await this.safeGet(`${TMDB_BASE}/discover/movie`, {
       region: "IN",
       with_origin_country: "IN",
       sort_by: "popularity.desc",
       language: "en-IN"
     });
-    return data?.results?.slice(0, 10) || [];
   }
 
-  async getUpcomingIndia() {
-    const data = await this.safeGet(`${TMDB_BASE}/movie/upcoming`, {
-      region: "IN",
-      language: "en-IN"
-    });
-    return data?.results?.slice(0, 10) || [];
+  async getUpcoming() {
+    return await this.safeGet(`${TMDB_BASE}/movie/upcoming`, { region: "IN", language: "en-IN" });
   }
 
-  async getTopRatedIndia() {
-    const data = await this.safeGet(`${TMDB_BASE}/movie/top_rated`, {
-      region: "IN",
-      language: "en-IN"
-    });
-    return data?.results?.slice(0, 10) || [];
+  async getTopRated() {
+    return await this.safeGet(`${TMDB_BASE}/movie/top_rated`, { region: "IN", language: "en-IN" });
   }
 
-  async getPopularWebSeriesIndia() {
-    const data = await this.safeGet(`${TMDB_BASE}/tv/popular`, {
-      language: "en-IN"
-    });
-    return data?.results?.slice(0, 10) || [];
+  async getPopularWebSeries() {
+    return await this.safeGet(`${TMDB_BASE}/tv/popular`, { language: "en-IN" });
   }
 
-  // ✅ Movie details (credits included for AI blog)
   async getMovieDetails(movieId) {
-    const data = await this.safeGet(`${TMDB_BASE}/movie/${movieId}`, {
+    return await this.safeGet(`${TMDB_BASE}/movie/${movieId}`, {
       language: "en-IN",
-      append_to_response: "credits"
+      append_to_response: "credits,videos"
     });
-    return data || null;
   }
 
-  // ✅ OTT Watch Providers (India)
   async getWatchProviders(movieId) {
-    const data = await this.safeGet(
-      `${TMDB_BASE}/movie/${movieId}/watch/providers`,
-      {}
-    );
+    const data = await this.safeGet(`${TMDB_BASE}/movie/${movieId}/watch/providers`);
     return data?.results?.IN || {};
   }
 }
