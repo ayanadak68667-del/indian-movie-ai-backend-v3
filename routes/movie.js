@@ -1,102 +1,62 @@
-const express = require("express");
+const express = require('express');
 const router = express.Router();
+const Movie = require('../models/Movie'); // আপনার MongoDB মডেল
+const Trending = require('../models/Trending'); // ট্রেন্ডিং সেভ করার জন্য মডেল
+const axios = require('axios');
+const Groq = require('groq-sdk');
 
-const tmdbService = require("../services/tmdbService");
-const youtubeService = require("../services/youtubeService");
-const { generateMovieBlog } = require("../services/groqService");
-const mongoCache = require("../services/mongoCacheService");
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-const CACHE_TTL = 1000 * 60 * 60 * 24; // 24h
-
-// ✅ ১. GET /api/trending - হোমপেজের জন্য ট্রেন্ডিং মুভি
-router.get("/trending", async (req, res) => {
+// ১. ট্রেন্ডিং ইন্ডিয়ান মুভি (২৪ ঘণ্টা রিফ্রেশ লজিক)
+router.get('/trending', async (req, res) => {
   try {
-    const data = await tmdbService.getTrending(); // নিশ্চিত করো tmdbService-এ এই ফাংশন আছে
-    res.json({ success: true, data: data.results || [] });
-  } catch (error) {
-    res.status(500).json({ success: false, data: [] });
-  }
-});
+    // ডাটাবেসে চেক করা আজকের ট্রেন্ডিং আছে কি না
+    let trendingData = await Trending.findOne({ type: 'trending_indian' });
+    
+    const oneDay = 24 * 60 * 60 * 1000;
+    const isOld = trendingData && (Date.now() - trendingData.updatedAt > oneDay);
 
-// ✅ ২. GET /api/discover - মুড (Genre) এবং বছর (Year) দিয়ে ফিল্টার
-router.get("/discover", async (req, res) => {
-  try {
-    const { genre, year } = req.query;
-    const data = await tmdbService.discoverMovies({ genre, year }); 
-    // tmdbService.discoverMovies-এ axios.get('/discover/movie', { params: { with_genres: genre, primary_release_year: year } }) থাকতে হবে
-    res.json({ success: true, data: data.results || [] });
-  } catch (error) {
-    res.status(500).json({ success: false, data: [] });
-  }
-});
-
-// ✅ ৩. GET /api/search?q=keyword
-router.get("/search", async (req, res) => {
-  try {
-    const query = (req.query.q || "").trim();
-    if (!query || query.length < 2) return res.json({ success: true, data: [] });
-
-    const data = await tmdbService.searchMulti(query);
-    return res.json({ success: true, data: data.results || [] });
-  } catch (error) {
-    res.status(500).json({ success: false, data: [] });
-  }
-});
-
-// ✅ ৪. GET /api/movie/:id (ডিটেইলস ও সার্টিফিকেশন ফিক্স)
-router.get("/movie/:id", async (req, res) => {
-  const movieId = req.params.id;
-
-  try {
-    const cachedMovie = await mongoCache.get(movieId);
-    const isStale = cachedMovie?.lastUpdated
-      ? Date.now() - new Date(cachedMovie.lastUpdated).getTime() > CACHE_TTL
-      : true;
-
-    if (cachedMovie && !isStale) {
-      return res.json({ success: true, data: { ...cachedMovie, cached: true } });
+    if (!trendingData || isOld) {
+      // যদি ডাটা না থাকে বা পুরনো হয়ে যায়, তবে TMDB থেকে আনা
+      const response = await axios.get(`https://api.themoviedb.org/3/discover/movie`, {
+        params: { 
+          api_key: process.env.TMDB_API_KEY, 
+          with_origin_country: 'IN',
+          sort_by: 'popularity.desc' 
+        }
+      });
+      
+      // MongoDB আপডেট করা
+      trendingData = await Trending.findOneAndUpdate(
+        { type: 'trending_indian' },
+        { data: response.data.results, updatedAt: Date.now() },
+        { upsert: true, new: true }
+      );
     }
-
-    const movie = await tmdbService.getMovieDetails(movieId);
-    if (!movie) throw new Error("TMDB details failed");
-
-    // সার্টিফিকেশন ডেটা আনা (রিয়েল মেটাডেটা)
-    const releaseDates = await tmdbService.getReleaseDates(movieId); // নতুন সার্ভিস কল
-    const indiaRelease = releaseDates?.results?.find(r => r.iso_3166_1 === 'IN');
-    const cert = indiaRelease ? indiaRelease.release_dates[0].certification : "UA 13+";
-
-    const [trailer, playlist, aiBlog, watchProviders] = await Promise.all([
-      youtubeService.getTrailer(movie.title).catch(() => null),
-      youtubeService.getPlaylist(movie.title).catch(() => null),
-      generateMovieBlog(movie).catch(() => ({})),
-      tmdbService.getWatchProviders(movieId).catch(() => ({}))
-    ]);
-
-    const meta = {
-      isTrending: (movie.popularity || 0) > 100,
-      isNew: movie.release_date ? (Date.now() - new Date(movie.release_date)) / 86400000 < 60 : false,
-      popularity: movie.popularity || 0,
-      imdbRating: movie.vote_average || 0,
-      certification: cert // রিয়েল সার্টিফিকেশন অ্যাড করা হলো
-    };
-
-    const movieData = {
-      tmdbId: String(movieId),
-      details: movie,
-      trailer,
-      playlist,
-      aiBlog,
-      watchProviders,
-      meta,
-      lastUpdated: new Date()
-    };
-
-    await mongoCache.set(movieData);
-
-    return res.json({ success: true, data: { ...movieData, cached: false } });
+    
+    res.json({ success: true, data: trendingData.data });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: "Trending Update Failed" });
   }
 });
 
-module.exports = router;
+// ২. মুভি ডিটেইলস (MongoDB-তে সেভ রাখার লজিক)
+router.get('/:id', async (req, res) => {
+  const movieId = req.params.id;
+  try {
+    // প্রথমে ডাটাবেসে খোঁজা (যাতে API Call বাঁচে)
+    let movie = await Movie.findOne({ tmdbId: movieId });
+
+    if (!movie) {
+      // যদি ডাটাবেসে না থাকে, তবে Groq AI দিয়ে জেনারেট করে সেভ করা
+      // [এখানে আগের মতো TMDB এবং Groq কল হবে...]
+      
+      // সেভ করার পর ইউজারকে পাঠানো
+      // await Movie.create({ tmdbId: movieId, aiAnalysis: aiData, ... });
+    }
+    
+    res.json({ success: true, data: movie });
+  } catch (error) {
+    res.status(500).json({ success: false });
+  }
+});
